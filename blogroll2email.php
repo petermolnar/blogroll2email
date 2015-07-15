@@ -40,7 +40,6 @@ class blogroll2email {
 
 	public function init () {
 		add_action( static::schedule, array( &$this, 'worker' ) );
-		//wp_schedule_event( time(), static::SCHEDULE, $this->schedule );
 		return false;
 	}
 
@@ -48,7 +47,7 @@ class blogroll2email {
 	 * activation hook function, to be extended
 	 */
 	public function plugin_activate() {
-        self::debug('activating');
+		self::debug('activating');
 		wp_schedule_single_event ( time(), static::schedule );
 	}
 
@@ -56,12 +55,12 @@ class blogroll2email {
 	 * deactivation hook function, to be extended
 	 */
 	public function plugin_deactivate () {
-        self::debug('deactivating');
+		self::debug('deactivating');
 		wp_unschedule_event( time(), static::schedule );
 	}
 
 	public function worker () {
-        self::debug('worker started');
+		self::debug('worker started');
 		$args = array(
 			'orderby' => 'owner',
 			'order' => 'ASC',
@@ -113,14 +112,10 @@ class blogroll2email {
 				*/
 			}
 
-			if ( empty($bookmark->link_rss)) {
-				// TODO: microformats
-				continue;
-			}
-			else {
+			if ( empty($bookmark->link_rss))
+				$this->parse_mf ( $bookmark, $owner );
+			else
 				$this->parse_rss( $bookmark, $owner );
-			}
-
 		}
 
 		// reschedule the worker
@@ -143,16 +138,18 @@ class blogroll2email {
 
 		$body = '<html><head></head><h1><a href="'. $link .'">'. $title .'</a></h1><body>'. $content . '<p>URL: <a href="'.$link.'">'.$link.'</a></p></body></html>';
 
+		$sitedomain = parse_url( get_bloginfo('url'), PHP_URL_HOST);
+
 		$headers = array (
 			'X-RSS-ID: ' . $link,
 			'X-RSS-URL: ' . $link,
 			'X-RSS-Feed: ' . $sourceurl,
 			'User-Agent: blogroll2email',
-			'From: "' . $fromname .'" <'. get_bloginfo('admin_email') .'>',
+			'From: "' . $fromname .'" <'. static::schedule . '@'. $sitedomain .'>',
 		);
 
-		//wp_mail( $to, $title, $body, $headers );
-		self::debug('blogroll2email: ' . $title );
+		self::debug('sending ' . $title . ' to ' . $to );
+		wp_mail( $to, $title, $body, $headers );
 
 		remove_filter( 'wp_mail_content_type', array( $this, 'set_html_content_type') );
 	}
@@ -161,14 +158,15 @@ class blogroll2email {
 	 *
 	 */
 	protected function parse_rss ( $bookmark, $owner ) {
-		if ( !class_exists('SimplePie') )
-			require_once( ABSPATH . WPINC . '/class-simplepie.php' );
 
 		if ( empty ($bookmark) || !is_object ($bookmark))
 			return false;
 
 		if ( empty ($owner) || !is_object ($owner))
 			return false;
+
+		if ( !class_exists('SimplePie') )
+			require_once( ABSPATH . WPINC . '/class-simplepie.php' );
 
 		$url = $bookmark->link_rss;
 		$last_updated = strtotime( $bookmark->link_updated );
@@ -200,15 +198,17 @@ class blogroll2email {
 		if ( $maxitems > 0 ) {
 			$last_updated_ = 0;
 			foreach ( $feed_items as $item ) {
-				$date = strtotime($item->get_date( 'Y-m-d H:i:s' ));
-				$from = $feed_title . ': ' . $item->get_author();
+				$date = $item->get_date( 'U' );
 
 				if ( $date > $last_updated ) {
+					$author = $item->get_author();
+					$from = $feed_title . ': ' . $author->get_name();
 					$this->send (
 						$owner->user_email,
 						$item->get_link(),
 						$item->get_title(),
-						$from, $url,
+						$from,
+						$url,
 						$item->get_content()
 					);
 
@@ -216,18 +216,135 @@ class blogroll2email {
 						$last_updated_ = $date;
 				}
 			}
-
 		}
 
-		if ( $last_updated_ > $last_updated ) {
+		$this->update_link_date ( $bookmark, $last_updated_ );
+	}
+
+
+	/***
+	 *
+	 */
+	protected function parse_mf ( $bookmark, $owner ) {
+
+		if ( empty ($bookmark) || !is_object ($bookmark))
+			return false;
+
+		if ( empty ($owner) || !is_object ($owner))
+			return false;
+
+		if ( !class_exists('Mf2') )
+			require_once ( dirname(__FILE__) . '/lib/php-mf2/Mf2/Parser.php' );
+
+		$last_updated = strtotime( $bookmark->link_updated );
+
+		$url = $bookmark->link_url;
+
+		//$hash = md5( $url );
+		// check cache file and skip this step if exists ?
+
+		$mf = Mf2\fetch($url,  true, $curlInfo);
+		error_log('MF2 fetching: ' . $url );
+
+		// check for rss, because it's older and more mature
+		// if there is one, register it for the link and skip this run
+		// in the next run, we'll parse the RSS
+		if ( isset($mf['alternates']) && !empty($mf['alternates'])) {
+			foreach ( $mf['alternates'] as $alternate ) {
+				if ( 	isset($alternate['type']) &&
+						!empty($alternate['type']) &&
+						$alternate['type'] == 'application/rss+xml'
+						&& isset($altenate['url']) &&
+						!empty($alternate['ulr']) &&
+						filter_var($alternate['ulr'], FILTER_VALIDATE_URL)
+					) {
+						global $wpdb;
+						$wpdb->update( $wpdb->prefix . 'links', array ( 'link_rss' => $alternate['url'] ), array('link_id'=> $bookmark->link_id ) );
+						return false;
+					}
+			}
+		}
+
+		$item = array ();
+
+		foreach ($mf['items'] as $topitem ) {
+			if ( in_array( 'h-feed', $topitem['type'])) {
+				if ( !empty($topitem['children'])) {
+					foreach ( $topitem['children'] as $entry ) {
+						if ( in_array( 'h-entry', $entry['type']) ) {
+
+							$properties = $entry['properties'];
+
+							$title = $properties['name'][0];
+							$url = $properties['url'][0];
+
+							if ( isset($properties['updated']) && !empty($properties['updated']) )
+								$date = $properties['updated'][0];
+							else
+								$date = $properties['published'][0];
+
+							if ( isset($properties['content'][0]['html']) && !empty($properties['content'][0]['html']) )
+								$content = $properties['content'][0]['html'];
+							elseif ( isset($properties['summary'][0]['html']) && !empty($properties['summary'][0]['html']))
+								$content = $properties['summary'][0]['html'] . '<h2><a href="'.$url.'">Read the full article &raquo;&raquo;</a></h2>';
+							else
+								$content = '<h1><a href="'.$url.'">'.$title.'</a></h1>';
+
+							$time = strtotime( $date );
+
+							$item = array (
+								'url' => $url,
+								'content' => $content,
+								//'date' => $date,
+								'title' => $title,
+								//'author' =>
+							);
+
+							$items[ $time ] = $item;
+						}
+					}
+				}
+			}
+		}
+
+		if ( empty( $items ) )
+			return false;
+
+		$last_updated_ = 0;
+		foreach ( $items as $time => $item ) {
+
+			if ( $time > $last_updated ) {
+				$this->send (
+					$owner->user_email,
+					$item['url'],
+					$item['title'],
+					$bookmark->link_name,
+					$item['url'],
+					$item['content']
+				);
+
+				if ( $time > $last_updated_ )
+					$last_updated_ = $time;
+			}
+		}
+
+		$this->update_link_date ( $bookmark, $last_updated_ );
+	}
+
+	/**
+	 *
+	 */
+	protected function update_link_date ( $bookmark, $last_updated ) {
+		$current_updated = strtotime( $bookmark->link_updated );
+		if ( $last_updated > $current_updated ) {
 			global $wpdb;
-			$wpdb->update( $wpdb->prefix . 'links', array ( 'link_updated' => date( 'Y-m-d H:i:s', $last_updated_ )), array('link_id'=> $bookmark->link_id ) );
+			$wpdb->update( $wpdb->prefix . 'links', array ( 'link_updated' => date( 'Y-m-d H:i:s', $last_updated )), array('link_id'=> $bookmark->link_id ) );
 		}
 	}
 
-    /**
-     *
-     */
+	/**
+	 *
+	 */
 	static function debug( $message, $level = LOG_NOTICE ) {
 		if ( @is_array( $message ) || @is_object ( $message ) )
 			$message = json_encode($message);

@@ -1,0 +1,3 @@
+[submodule "lib/php-mf2"]
+	path = lib/php-mf2
+	url = https://github.com/indieweb/php-mf2.git
