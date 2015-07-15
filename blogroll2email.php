@@ -27,7 +27,7 @@ License: GPLv3
 */
 
 class blogroll2email {
-	const revisit_time = 3600;
+	const revisit_time = 1800;
 	const schedule = 'blogroll2email';
 
 	var $schedule = null;
@@ -36,19 +36,34 @@ class blogroll2email {
 		register_activation_hook( __FILE__ , array( &$this, 'plugin_activate' ) );
 		register_deactivation_hook( __FILE__ , array( &$this, 'plugin_deactivate' ) );
 		add_action( 'init', array( &$this, 'init'));
+		add_filter( 'cron_schedules', array(&$this, 'add_cron_schedule' ));
 	}
 
 	public function init () {
+		// additional cron schedules
 		add_action( static::schedule, array( &$this, 'worker' ) );
+		if (!wp_get_schedule( static::schedule ))
+			wp_schedule_event ( time(), static::schedule, static::schedule );
 		return false;
 	}
+
+	public function add_cron_schedule ( $schedules ) {
+
+		$schedules[ static::schedule ] = array(
+			'interval' => static::revisit_time,
+			'display' => sprintf(__( 'every %d seconds' ), static::revisit_time )
+		);
+
+		return $schedules;
+	}
+
 
 	/**
 	 * activation hook function, to be extended
 	 */
 	public function plugin_activate() {
 		self::debug('activating');
-		wp_schedule_single_event ( time(), static::schedule );
+
 	}
 
 	/**
@@ -57,6 +72,7 @@ class blogroll2email {
 	public function plugin_deactivate () {
 		self::debug('deactivating');
 		wp_unschedule_event( time(), static::schedule );
+		wp_clear_scheduled_hook( static::schedule );
 	}
 
 	public function worker () {
@@ -195,14 +211,26 @@ class blogroll2email {
 		$feed_items = $feed->get_items( 0, $maxitems );
 		$feed_title = $feed->get_title();
 
+		if ( !empty($feed_title) && $bookmark->link_name != $feed_title ) {
+			global $wpdb;
+			$wpdb->update( $wpdb->prefix . 'links', array ( 'link_name' => $feed_title ), array('link_id'=> $bookmark->link_id ) );
+		}
+
+		$feed_author = $feed->get_author();
+
 		if ( $maxitems > 0 ) {
 			$last_updated_ = 0;
 			foreach ( $feed_items as $item ) {
 				$date = $item->get_date( 'U' );
 
 				if ( $date > $last_updated ) {
+					$from = $feed_title;
 					$author = $item->get_author();
-					$from = $feed_title . ': ' . $author->get_name();
+					if ($author)
+						$from = $from . ': ' . $author->get_name();
+					elseif ( $feed_author )
+						$from = $from . ': ' . $feed_author->get_name();
+
 					$this->send (
 						$owner->user_email,
 						$item->get_link(),
