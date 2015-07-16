@@ -27,26 +27,44 @@ License: GPLv3
 */
 
 class blogroll2email {
+	// 30 mins is reasonable
 	const revisit_time = 1800;
 	const schedule = 'blogroll2email';
 
-	var $schedule = null;
-
+	/**
+	 * thing to run as early as possible
+	 */
 	public function __construct () {
+		// this is mostly for debugging reasons
 		register_activation_hook( __FILE__ , array( &$this, 'plugin_activate' ) );
+		// clear schedules if there's any on deactivation
 		register_deactivation_hook( __FILE__ , array( &$this, 'plugin_deactivate' ) );
+		//
 		add_action( 'init', array( &$this, 'init'));
+		// extend current cron schedules with our entry
 		add_filter( 'cron_schedules', array(&$this, 'add_cron_schedule' ));
+		// re-enable the links manager
+		add_filter( 'pre_option_link_manager_enabled', '__return_true' );
+		// add our own action for the scheduler to call it
+		add_action( static::schedule, array( &$this, 'worker' ) );
 	}
 
+	/**
+	 * things to run within WordPress init
+	 */
 	public function init () {
-		// additional cron schedules
-		add_action( static::schedule, array( &$this, 'worker' ) );
 		if (!wp_get_schedule( static::schedule ))
 			wp_schedule_event ( time(), static::schedule, static::schedule );
 		return false;
 	}
 
+	/**
+	 * add our own schedule
+	 *
+	 * @param array $schedules - current schedules list
+	 *
+	 * @return array $schedules - extended schedules list
+	 */
 	public function add_cron_schedule ( $schedules ) {
 
 		$schedules[ static::schedule ] = array(
@@ -59,7 +77,7 @@ class blogroll2email {
 
 
 	/**
-	 * activation hook function, to be extended
+	 * activation hook function
 	 */
 	public function plugin_activate() {
 		self::debug('activating');
@@ -67,7 +85,7 @@ class blogroll2email {
 	}
 
 	/**
-	 * deactivation hook function, to be extended
+	 * deactivation hook function; clears schedules
 	 */
 	public function plugin_deactivate () {
 		self::debug('deactivating');
@@ -75,6 +93,11 @@ class blogroll2email {
 		wp_clear_scheduled_hook( static::schedule );
 	}
 
+	/**
+	 * main worker function: reads all bookmarks sorted by owner;
+	 * gets them, processes them, sends the new entries
+	 *
+	 */
 	public function worker () {
 		self::debug('worker started');
 		$args = array(
@@ -134,12 +157,12 @@ class blogroll2email {
 				$this->parse_rss( $bookmark, $owner );
 		}
 
-		// reschedule the worker
-		wp_schedule_single_event ( time() + static::revisit_time, static::schedule );
 	}
 
 	/**
+	 * set HTML mail filter
 	 *
+	 * @return string HTML mime type
 	 */
 	public function set_html_content_type() {
 		return 'text/html';
@@ -147,15 +170,28 @@ class blogroll2email {
 
 	/**
 	 *
+	 * @param string $to
+	 * @param string $link
+	 * @param string $title
+	 * @param string $fromname
+	 * @param string $sourceurl
+	 * @param string $content
+	 *
+	 *
 	 */
-	protected function send ( $to, $link, $title, $fromname, $sourceurl, $content ) {
+	protected function send ( $to, $link, $title, $fromname, $sourceurl, $content, $dry = false ) {
 
+		// enable HTML mail
 		add_filter( 'wp_mail_content_type', array( $this, 'set_html_content_type') );
 
+		// build a more readable body
 		$body = '<html><head></head><h1><a href="'. $link .'">'. $title .'</a></h1><body>'. $content . '<p>URL: <a href="'.$link.'">'.$link.'</a></p></body></html>';
 
+		// this is to set the sender mail from our own domain
 		$sitedomain = parse_url( get_bloginfo('url'), PHP_URL_HOST);
 
+		// additional header, for potential sieve backwards compatibility
+		// with http://www.aaronsw.com/weblog/001148
 		$headers = array (
 			'X-RSS-ID: ' . $link,
 			'X-RSS-URL: ' . $link,
@@ -165,22 +201,34 @@ class blogroll2email {
 		);
 
 		self::debug('sending ' . $title . ' to ' . $to );
-		wp_mail( $to, $title, $body, $headers );
 
+		// for debung & specific reasons, there is a dry run mode
+		if ( !$dry )
+			$return = wp_mail( $to, $title, $body, $headers );
+
+
+		// disable HTML mail
 		remove_filter( 'wp_mail_content_type', array( $this, 'set_html_content_type') );
+
+		return $return;
 	}
 
 	/**
 	 *
+	 * @param object $bookmark
+	 * @param object $owner
 	 */
 	protected function parse_rss ( $bookmark, $owner ) {
 
+		// no bookmark, no fun
 		if ( empty ($bookmark) || !is_object ($bookmark))
 			return false;
 
+		// no owner means no email, so no reason to parse
 		if ( empty ($owner) || !is_object ($owner))
 			return false;
 
+		// instead of the way too simple fetch_feed, we'll use SimplePie itself
 		if ( !class_exists('SimplePie') )
 			require_once( ABSPATH . WPINC . '/class-simplepie.php' );
 
@@ -190,7 +238,7 @@ class blogroll2email {
 		error_log('Fetching: ' . $url );
 		$feed = new SimplePie();
 		$feed->set_feed_url( $url );
-		$feed->set_cache_duration ( static::revisit_time );
+		$feed->set_cache_duration ( static::revisit_time - 10 );
 		$feed->set_cache_location( WP_CONTENT_DIR . DIRECTORY_SEPARATOR. 'cache' );
 		$feed->force_feed(true);
 
@@ -207,20 +255,26 @@ class blogroll2email {
 		if ( $feed->error() )
 			return new WP_Error( 'simplepie-error', $feed->error() );
 
+		// set max items to 12
+		// especially useful with first runs
 		$maxitems = $feed->get_item_quantity( 12 );
 		$feed_items = $feed->get_items( 0, $maxitems );
 		$feed_title = $feed->get_title();
 
+		// set the link name from the RSS title
 		if ( !empty($feed_title) && $bookmark->link_name != $feed_title ) {
 			global $wpdb;
 			$wpdb->update( $wpdb->prefix . 'links', array ( 'link_name' => $feed_title ), array('link_id'=> $bookmark->link_id ) );
 		}
 
+		// if there's a feed author, get it, we may need it if there's no entry
+		// author
 		$feed_author = $feed->get_author();
 
 		if ( $maxitems > 0 ) {
 			$last_updated_ = 0;
 			foreach ( $feed_items as $item ) {
+				// U stands for Unix Time
 				$date = $item->get_date( 'U' );
 
 				if ( $date > $last_updated ) {
@@ -231,26 +285,32 @@ class blogroll2email {
 					elseif ( $feed_author )
 						$from = $from . ': ' . $feed_author->get_name();
 
-					$this->send (
+					if ( $this->send (
 						$owner->user_email,
 						$item->get_link(),
 						$item->get_title(),
 						$from,
 						$url,
 						$item->get_content()
-					);
-
+					)) {
 					if ( $date > $last_updated_ )
 						$last_updated_ = $date;
+					}
 				}
 			}
 		}
 
+		// poke the link's last update field, so we know what was the last sent
+		// entry's date
 		$this->update_link_date ( $bookmark, $last_updated_ );
 	}
 
 
 	/***
+	 * Microformats2 parser version
+	 *
+	 * @param object $bookmark
+	 * @param object $owner
 	 *
 	 */
 	protected function parse_mf ( $bookmark, $owner ) {
@@ -293,12 +353,13 @@ class blogroll2email {
 			}
 		}
 
-		$item = array ();
-
+		$items = array ();
 		foreach ($mf['items'] as $topitem ) {
+			// look for h-feeds
 			if ( in_array( 'h-feed', $topitem['type'])) {
 				if ( !empty($topitem['children'])) {
 					foreach ( $topitem['children'] as $entry ) {
+						// look for h-entries
 						if ( in_array( 'h-entry', $entry['type']) ) {
 
 							$properties = $entry['properties'];
@@ -323,9 +384,7 @@ class blogroll2email {
 							$item = array (
 								'url' => $url,
 								'content' => $content,
-								//'date' => $date,
 								'title' => $title,
-								//'author' =>
 							);
 
 							$items[ $time ] = $item;
@@ -340,19 +399,18 @@ class blogroll2email {
 
 		$last_updated_ = 0;
 		foreach ( $items as $time => $item ) {
-
 			if ( $time > $last_updated ) {
-				$this->send (
+				if ($this->send (
 					$owner->user_email,
 					$item['url'],
 					$item['title'],
 					$bookmark->link_name,
 					$item['url'],
 					$item['content']
-				);
-
-				if ( $time > $last_updated_ )
+				)) {
+					if ( $time > $last_updated_ )
 					$last_updated_ = $time;
+				}
 			}
 		}
 
@@ -360,7 +418,10 @@ class blogroll2email {
 	}
 
 	/**
+	 * in case there was an update, set the last update time for the bookmark
 	 *
+	 * @param object $bookmark
+	 * @param epoch $last_updated
 	 */
 	protected function update_link_date ( $bookmark, $last_updated ) {
 		$current_updated = strtotime( $bookmark->link_updated );
@@ -372,6 +433,11 @@ class blogroll2email {
 
 	/**
 	 *
+	 * debug messages; will only work if WP_DEBUG is on
+	 * or if the level is LOG_ERR, but that will kill the process
+	 *
+	 * @param string $message
+	 * @param int $level
 	 */
 	static function debug( $message, $level = LOG_NOTICE ) {
 		if ( @is_array( $message ) || @is_object ( $message ) )
