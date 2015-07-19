@@ -4,7 +4,7 @@
 Plugin Name: blogroll2email
 Plugin URI: https://github.com/petermolnar/blogroll2email
 Description: Pulls RSS, Atom and microformats entries from blogroll links and sends them as email
-Version: 0.1
+Version: 0.2
 Author: Peter Molnar <hello@petermolnar.eu>
 Author URI: http://petermolnar.eu/
 License: GPLv3
@@ -179,7 +179,7 @@ class blogroll2email {
 	 *
 	 *
 	 */
-	protected function send ( $to, $link, $title, $fromname, $sourceurl, $content, $dry = false ) {
+	protected function send ( $to, $link, $title, $fromname, $sourceurl, $content, $time, $dry = false ) {
 
 		// enable HTML mail
 		add_filter( 'wp_mail_content_type', array( $this, 'set_html_content_type') );
@@ -198,6 +198,7 @@ class blogroll2email {
 			'X-RSS-Feed: ' . $sourceurl,
 			'User-Agent: blogroll2email',
 			'From: "' . $fromname .'" <'. static::schedule . '@'. $sitedomain .'>',
+			'Date: ' . date( 'r', $time ),
 		);
 
 		self::debug('sending ' . $title . ' to ' . $to );
@@ -244,10 +245,10 @@ class blogroll2email {
 
 		// optimization
 		$feed->enable_order_by_date(true);
-		$feed->remove_div(false);
+		$feed->remove_div(true);
 		$feed->strip_comments(true);
 		$feed->strip_htmltags(false);
-		$feed->strip_attributes(false);
+		$feed->strip_attributes(true);
 		$feed->set_image_handler(false);
 
 		$feed->init();
@@ -291,7 +292,8 @@ class blogroll2email {
 						$item->get_title(),
 						$from,
 						$url,
-						$item->get_content()
+						$item->get_content(),
+						$date
 					)) {
 					if ( $date > $last_updated_ )
 						$last_updated_ = $date;
@@ -406,7 +408,8 @@ class blogroll2email {
 					$item['title'],
 					$bookmark->link_name,
 					$item['url'],
-					$item['content']
+					$item['content'],
+					$time
 				)) {
 					if ( $time > $last_updated_ )
 					$last_updated_ = $time;
