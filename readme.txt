@@ -3,8 +3,8 @@ Contributors: cadeyrn
 Donate link:
 Tags: blogroll, links, rss, email, reader
 Requires at least: 3.0
-Tested up to: 4.2.2
-Stable tag: 0.2
+Tested up to: 4.4
+Stable tag: 0.2.2
 License: GPLv3
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
 
@@ -45,6 +45,17 @@ Version numbering logic:
 * every A. indicates BIG changes.
 * every .B version indicates new features.
 * every ..C indicates bugfixes for A.B version.
+
+= 0.2.2 =
+*2015-12-03*
+
+* tested for WordPress 4.4
+
+= 0.2.1 =
+*2015-10-20*
+
+* uninitiated variable bugfix
+* updated mf2 library
 
 = 0.2 =
 *2015-07-16*

@@ -4,7 +4,7 @@
 Plugin Name: blogroll2email
 Plugin URI: https://github.com/petermolnar/blogroll2email
 Description: Pulls RSS, Atom and microformats entries from blogroll links and sends them as email
-Version: 0.2
+Version: 0.2.2
 Author: Peter Molnar <hello@petermolnar.eu>
 Author URI: http://petermolnar.eu/
 License: GPLv3
@@ -180,7 +180,6 @@ class blogroll2email {
 	 *
 	 */
 	protected function send ( $to, $link, $title, $fromname, $sourceurl, $content, $time, $dry = false ) {
-
 		// enable HTML mail
 		add_filter( 'wp_mail_content_type', array( $this, 'set_html_content_type') );
 
@@ -271,9 +270,9 @@ class blogroll2email {
 		// if there's a feed author, get it, we may need it if there's no entry
 		// author
 		$feed_author = $feed->get_author();
+		$last_updated_ = 0;
 
 		if ( $maxitems > 0 ) {
-			$last_updated_ = 0;
 			foreach ( $feed_items as $item ) {
 				// U stands for Unix Time
 				$date = $item->get_date( 'U' );
@@ -285,6 +284,20 @@ class blogroll2email {
 						$from = $from . ': ' . $author->get_name();
 					elseif ( $feed_author )
 						$from = $from . ': ' . $feed_author->get_name();
+
+					$content = $item->get_content();
+
+					$matches = array();
+					preg_match_all('/farm[0-9]\.staticflickr\.com\/[0-9]+\/[0-9]+_[0-9a-zA-Z]+_m\.jpg/s', $content, $matches);
+
+					if ( !empty ( $matches[0] ) ) {
+						foreach ( $matches[0] as $to_replace ) {
+							$clean = str_replace('_m.jpg', '_c.jpg', $to_replace);
+							$content = str_replace ( $to_replace, $clean, $content );
+						}
+					}
+
+					//$content = apply_filters('blogroll2email_content', $content);
 
 					if ( $this->send (
 						$owner->user_email,
@@ -432,6 +445,10 @@ class blogroll2email {
 			global $wpdb;
 			$wpdb->update( $wpdb->prefix . 'links', array ( 'link_updated' => date( 'Y-m-d H:i:s', $last_updated )), array('link_id'=> $bookmark->link_id ) );
 		}
+	}
+
+	protected function generate_sieve_description ( $category ) {
+
 	}
 
 	/**
