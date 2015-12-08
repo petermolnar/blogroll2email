@@ -49,6 +49,7 @@ Version numbering logic:
 = 0.2.2 =
 *2015-12-03*
 
+* added htmlspecialchars_decode to getting the urls
 * tested for WordPress 4.4
 
 = 0.2.1 =

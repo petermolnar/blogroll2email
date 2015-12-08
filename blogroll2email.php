@@ -31,6 +31,8 @@ class blogroll2email {
 	const revisit_time = 1800;
 	const schedule = 'blogroll2email';
 
+	private $cachedir = WP_CONTENT_DIR . DIRECTORY_SEPARATOR. 'cache' .  DIRECTORY_SEPARATOR. __CLASS__;
+
 	/**
 	 * thing to run as early as possible
 	 */
@@ -47,6 +49,9 @@ class blogroll2email {
 		add_filter( 'pre_option_link_manager_enabled', '__return_true' );
 		// add our own action for the scheduler to call it
 		add_action( static::schedule, array( &$this, 'worker' ) );
+
+		if (!is_dir($this->cachedir))
+			mkdir ($this->cachedir);
 	}
 
 	/**
@@ -232,14 +237,14 @@ class blogroll2email {
 		if ( !class_exists('SimplePie') )
 			require_once( ABSPATH . WPINC . '/class-simplepie.php' );
 
-		$url = $bookmark->link_rss;
+		$url = htmlspecialchars_decode($bookmark->link_rss);
 		$last_updated = strtotime( $bookmark->link_updated );
 
 		error_log('Fetching: ' . $url );
 		$feed = new SimplePie();
 		$feed->set_feed_url( $url );
 		$feed->set_cache_duration ( static::revisit_time - 10 );
-		$feed->set_cache_location( WP_CONTENT_DIR . DIRECTORY_SEPARATOR. 'cache' );
+		$feed->set_cache_location( $this->cachedir );
 		$feed->force_feed(true);
 
 		// optimization
@@ -341,7 +346,7 @@ class blogroll2email {
 
 		$last_updated = strtotime( $bookmark->link_updated );
 
-		$url = $bookmark->link_url;
+		$url = htmlspecialchars_decode($bookmark->link_url);
 
 		//$hash = md5( $url );
 		// check cache file and skip this step if exists ?
