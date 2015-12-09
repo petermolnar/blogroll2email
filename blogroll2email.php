@@ -293,16 +293,17 @@ class blogroll2email {
 					$content = $item->get_content();
 
 					$matches = array();
-					preg_match_all('/farm[0-9]\.staticflickr\.com\/[0-9]+\/[0-9]+_[0-9a-zA-Z]+_m\.jpg/s', $content, $matches);
+					preg_match_all('/farm[0-9]\.staticflickr\.com\/[0-9]+\/([0-9]+_[0-9a-zA-Z]+_m\.jpg)/s', $content, $matches);
 
 					if ( !empty ( $matches[0] ) ) {
 						foreach ( $matches[0] as $to_replace ) {
 							$clean = str_replace('_m.jpg', '_c.jpg', $to_replace);
 							$content = str_replace ( $to_replace, $clean, $content );
 						}
+						$content = preg_replace("/(width|height)=\"(.*?)\" ?/is", '', $content);
 					}
 
-					//$content = apply_filters('blogroll2email_content', $content);
+					$content = apply_filters('blogroll2email_message', $content);
 
 					if ( $this->send (
 						$owner->user_email,
