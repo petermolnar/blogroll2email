@@ -7,6 +7,7 @@ Tested up to: 4.4
 Stable tag: 0.2.2
 License: GPLv3
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
+Required minimum PHP version: 5.3
 
 Bring back the good ol' web: pull RSS, Atom and microformat feeds from your blogroll links and receive them as email.
 

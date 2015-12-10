@@ -8,6 +8,7 @@ Version: 0.2.2
 Author: Peter Molnar <hello@petermolnar.eu>
 Author URI: http://petermolnar.eu/
 License: GPLv3
+Required minimum PHP version: 5.3
 */
 
 /*  Copyright 2015 Peter Molnar ( hello@petermolnar.eu )
@@ -85,7 +86,7 @@ class blogroll2email {
 	 * activation hook function
 	 */
 	public function plugin_activate() {
-		self::debug('activating');
+		static::debug('activating');
 
 	}
 
@@ -93,7 +94,7 @@ class blogroll2email {
 	 * deactivation hook function; clears schedules
 	 */
 	public function plugin_deactivate () {
-		self::debug('deactivating');
+		static::debug('deactivating');
 		wp_unschedule_event( time(), static::schedule );
 		wp_clear_scheduled_hook( static::schedule );
 	}
@@ -104,7 +105,7 @@ class blogroll2email {
 	 *
 	 */
 	public function worker () {
-		self::debug('worker started');
+		static::debug('worker started');
 		$args = array(
 			'orderby' => 'owner',
 			'order' => 'ASC',
@@ -205,7 +206,7 @@ class blogroll2email {
 			'Date: ' . date( 'r', $time ),
 		);
 
-		self::debug('sending ' . $title . ' to ' . $to );
+		static::debug('sending ' . $title . ' to ' . $to );
 
 		// for debung & specific reasons, there is a dry run mode
 		if ( !$dry )
