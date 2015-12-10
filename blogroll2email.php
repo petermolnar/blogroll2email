@@ -27,6 +27,8 @@ Required minimum PHP version: 5.3
 	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
+if (!class_exists('blogroll2email')):
+
 class blogroll2email {
 	// 30 mins is reasonable
 	const revisit_time = 1800;
@@ -488,3 +490,5 @@ class blogroll2email {
 }
 
 $blogroll2email = new blogroll2email();
+
+endif;
