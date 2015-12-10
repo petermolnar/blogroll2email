@@ -345,8 +345,10 @@ class blogroll2email {
 		if ( empty ($owner) || !is_object ($owner))
 			return false;
 
-		if ( !class_exists('Mf2') )
-			require_once ( dirname(__FILE__) . '/lib/php-mf2/Mf2/Parser.php' );
+		if ( !class_exists('Mf2') ) {
+			require __DIR__ . '/vendor/autoload.php';
+			//use Mf2;
+		}
 
 		$last_updated = strtotime( $bookmark->link_updated );
 
