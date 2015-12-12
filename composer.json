@@ -2,7 +2,7 @@
     "name": "petermolnar/blogroll2email",
     "description": "blogroll2email WordPress plugin",
     "require": {
-		"php": ">=5.3.0",
+        "php": ">=5.3.0",
         "mf2/mf2": "0.2.*"
     },
     "license": "GPLv3",
@@ -10,7 +10,7 @@
         {
             "name": "Peter Molnar",
             "email": "hello@petermolnar.eu",
-			"homepage": "https://petermolnar.eu"
+            "homepage": "https://petermolnar.eu"
         }
     ]
 }

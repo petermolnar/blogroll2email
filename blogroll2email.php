@@ -4,7 +4,7 @@
 Plugin Name: blogroll2email
 Plugin URI: https://github.com/petermolnar/blogroll2email
 Description: Pulls RSS, Atom and microformats entries from blogroll links and sends them as email
-Version: 0.2.2
+Version: 0.2.3
 Author: Peter Molnar <hello@petermolnar.eu>
 Author URI: http://petermolnar.eu/
 License: GPLv3
@@ -34,12 +34,13 @@ class blogroll2email {
 	const revisit_time = 1800;
 	const schedule = 'blogroll2email';
 
-	private $cachedir = WP_CONTENT_DIR . DIRECTORY_SEPARATOR. 'cache' .  DIRECTORY_SEPARATOR. __CLASS__;
+	private $cachedir;
 
 	/**
 	 * thing to run as early as possible
 	 */
 	public function __construct () {
+		$this->cachedir = WP_CONTENT_DIR . DIRECTORY_SEPARATOR. 'cache' .  DIRECTORY_SEPARATOR. __CLASS__;
 		// this is mostly for debugging reasons
 		register_activation_hook( __FILE__ , array( &$this, 'plugin_activate' ) );
 		// clear schedules if there's any on deactivation
@@ -163,8 +164,29 @@ class blogroll2email {
 				$this->parse_mf ( $bookmark, $owner );
 			else
 				$this->parse_rss( $bookmark, $owner );
+
+			$export_yaml[ $owner->user_nicename ][] = array (
+				'name' => $bookmark->link_name,
+				'url' => $bookmark->link_url,
+				'rss' => $bookmark->link_rss,
+				'description' => $bookmark->link_description,
+				'lastfetched' => $bookmark->link_updated,
+			);
 		}
 
+		if (function_exists('yaml_emit')) {
+			$flatroot = WP_CONTENT_DIR . DIRECTORY_SEPARATOR . 'flat';
+			if ( !is_dir($flatroot)) {
+				if (!mkdir( $flatroot )) {
+					static::debug_log('Failed to create ' . $flatroot . ', exiting YAML creation');
+				}
+			}
+			foreach ( $export_yaml as $owner => $bookmarks ) {
+				$export = yaml_emit($bookmarks, YAML_UTF8_ENCODING );
+				$export_file = $flatroot . DIRECTORY_SEPARATOR . 'bookmarks_' . $owner . '.yml';
+				file_put_contents ($export_file, $export);
+			}
+		}
 	}
 
 	/**
