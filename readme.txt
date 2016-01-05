@@ -1,6 +1,6 @@
 === blogroll2email ===
 Contributors: cadeyrn
-Donate link:
+Donate link: https://paypal.me/petermolnar/3
 Tags: blogroll, links, rss, email, reader
 Requires at least: 3.0
 Tested up to: 4.4

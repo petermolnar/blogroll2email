@@ -245,6 +245,38 @@ class blogroll2email {
 
 	/**
 	 *
+	 * @param string $to
+	 * @param string $link
+	 * @param string $message
+	 *
+	 *
+	 */
+	protected function failed ( $to, $link, $message ) {
+		$title = "blogroll2email: getting {$link} failed";
+		$body = "Error message: \n {$message}";
+		// this is to set the sender mail from our own domain
+		$sitedomain = parse_url( get_bloginfo('url'), PHP_URL_HOST);
+
+		// additional header, for potential sieve backwards compatibility
+		// with http://www.aaronsw.com/weblog/001148
+		$from = static::schedule . '@'. $sitedomain;
+		$headers = array (
+			'User-Agent: blogroll2email',
+			'From: " '. $from .' <' . $from .'>',
+			'Date: ' . date( 'r' ),
+		);
+
+		static::debug('sending error to ' . $to );
+
+		// for debung & specific reasons, there is a dry run mode
+		if ( !$dry )
+			$return = wp_mail( $to, $title, $body, $headers );
+
+		return $return;
+	}
+
+	/**
+	 *
 	 * @param object $bookmark
 	 * @param object $owner
 	 */
@@ -282,8 +314,17 @@ class blogroll2email {
 
 		$feed->init();
 		$feed->handle_content_type();
-		if ( $feed->error() )
-			return new WP_Error( 'simplepie-error', $feed->error() );
+		if ( $feed->error() ) {
+			$err = new WP_Error( 'simplepie-error', $feed->error() );
+
+			//static::debug('Error: ' . $err->get_error_message());
+			 $this->failed (
+				$owner->user_email, // to
+				$url, // target
+				$err->get_error_message() // error message
+			);
+			return $err;
+		}
 
 		// set max items to 12
 		// especially useful with first runs
