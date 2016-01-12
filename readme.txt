@@ -3,8 +3,8 @@ Contributors: cadeyrn
 Donate link: https://paypal.me/petermolnar/3
 Tags: blogroll, links, rss, email, reader
 Requires at least: 3.0
-Tested up to: 4.4
-Stable tag: 0.2.3
+Tested up to: 4.4.1
+Stable tag: 0.3
 License: GPLv3
 License URI: http://www.gnu.org/licenses/gpl-3.0.html
 Required minimum PHP version: 5.3
@@ -46,6 +46,11 @@ Version numbering logic:
 * every A. indicates BIG changes.
 * every .B version indicates new features.
 * every ..C indicates bugfixes for A.B version.
+
+= 0.3 =
+*2015-01-07*
+
+* support for [granary](https://github.com/snarfed/granary) JSON-MF2 format
 
 = 0.2.3 =
 *2015-12-12*

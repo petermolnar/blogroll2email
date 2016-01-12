@@ -27,6 +27,11 @@ Required minimum PHP version: 5.3
 	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
+if ( !class_exists('Mf2\Parser') ) {
+	require (__DIR__ . '/vendor/autoload.php');
+}
+
+
 if (!class_exists('blogroll2email')):
 
 class blogroll2email {
@@ -120,6 +125,8 @@ class blogroll2email {
 		$currowner = $owner = false;
 
 		foreach ( $bookmarks as $bookmark ) {
+
+
 			/* print_r ($bookmark);
 				stdClass Object
 				(
@@ -160,11 +167,6 @@ class blogroll2email {
 				*/
 			}
 
-			if ( empty($bookmark->link_rss))
-				$this->parse_mf ( $bookmark, $owner );
-			else
-				$this->parse_rss( $bookmark, $owner );
-
 			$export_yaml[ $owner->user_nicename ][] = array (
 				'name' => $bookmark->link_name,
 				'url' => $bookmark->link_url,
@@ -172,6 +174,46 @@ class blogroll2email {
 				'description' => $bookmark->link_description,
 				'lastfetched' => $bookmark->link_updated,
 			);
+
+			if ( !empty($bookmark->link_rss)) {
+				$this->do_rss( $bookmark, $owner );
+			}
+			else {
+				static::debug('Switcing into HTML mode');
+				$url = htmlspecialchars_decode($bookmark->link_url);
+
+				static::debug("  fetching {$url}");
+				$q = wp_remote_get($url);
+
+				if (is_wp_error($q)) {
+					static::debug('  something went wrong: ' . $q->get_error_message());
+					continue;
+				}
+
+				if (!is_array($q))
+					continue;
+
+				if (!isset($q['headers']) || !is_array($q['headers']))
+					continue;
+
+				if (!isset($q['body']) || empty($q['body']))
+					continue;
+
+				$ctype = isset($q['headers']['content-type']) ? $q['headers']['content-type'] : 'text/html';
+
+				if ($ctype == "application/json") {
+					static::debug("  content is json");
+					$content = json_decode($q['body'], true);
+				}
+				else {
+					static::debug("  content is html");
+					$content = Mf2\parse($q['body'], $url);
+				}
+
+				static::debug("  sending it to mf parser");
+				$this->parse_mf ( $bookmark, $owner, $content );
+			}
+
 		}
 
 		if (function_exists('yaml_emit')) {
@@ -280,7 +322,7 @@ class blogroll2email {
 	 * @param object $bookmark
 	 * @param object $owner
 	 */
-	protected function parse_rss ( $bookmark, $owner ) {
+	protected function do_rss ( $bookmark, $owner ) {
 
 		// no bookmark, no fun
 		if ( empty ($bookmark) || !is_object ($bookmark))
@@ -400,7 +442,7 @@ class blogroll2email {
 	 * @param object $owner
 	 *
 	 */
-	protected function parse_mf ( $bookmark, $owner ) {
+	protected function parse_mf ( $bookmark, $owner, $mf ) {
 
 		if ( empty ($bookmark) || !is_object ($bookmark))
 			return false;
@@ -408,78 +450,67 @@ class blogroll2email {
 		if ( empty ($owner) || !is_object ($owner))
 			return false;
 
-		if ( !class_exists('Mf2') ) {
-			require __DIR__ . '/vendor/autoload.php';
-			//use Mf2;
-		}
-
 		$last_updated = strtotime( $bookmark->link_updated );
 
-		$url = htmlspecialchars_decode($bookmark->link_url);
+		$mfitems = $items = array ();
 
-		//$hash = md5( $url );
-		// check cache file and skip this step if exists ?
+		static::debug("    looping topitems");
+		foreach ($mf['items'] as $topitem ) {
 
-		$mf = Mf2\fetch($url,  true, $curlInfo);
-		error_log('MF2 fetching: ' . $url );
-
-		// check for rss, because it's older and more mature
-		// if there is one, register it for the link and skip this run
-		// in the next run, we'll parse the RSS
-		if ( isset($mf['alternates']) && !empty($mf['alternates'])) {
-			foreach ( $mf['alternates'] as $alternate ) {
-				if ( 	isset($alternate['type']) &&
-						!empty($alternate['type']) &&
-						$alternate['type'] == 'application/rss+xml'
-						&& isset($altenate['url']) &&
-						!empty($alternate['ulr']) &&
-						filter_var($alternate['ulr'], FILTER_VALIDATE_URL)
-					) {
-						global $wpdb;
-						$wpdb->update( $wpdb->prefix . 'links', array ( 'link_rss' => $alternate['url'] ), array('link_id'=> $bookmark->link_id ) );
-						return false;
-					}
+			if ( in_array( 'h-feed', $topitem['type']) && !empty($topitem['children'])) {
+				$mfitems[] = $topitem['children'];
+			}
+			elseif ( in_array( 'h-entry', $topitem['type']) ) {
+				$mfitems[] = $topitem;
 			}
 		}
 
-		$items = array ();
-		foreach ($mf['items'] as $topitem ) {
-			// look for h-feeds
-			if ( in_array( 'h-feed', $topitem['type'])) {
-				if ( !empty($topitem['children'])) {
-					foreach ( $topitem['children'] as $entry ) {
-						// look for h-entries
-						if ( in_array( 'h-entry', $entry['type']) ) {
+		static::debug("    looping mfitems");
+		foreach ($mfitems as $entry ) {
+			// double-check h-entries
+			if ( in_array( 'h-entry', $entry['type']) ) {
 
-							$properties = $entry['properties'];
+				$properties = $entry['properties'];
+				$title = $bookmark->link_name;
 
-							$title = $properties['name'][0];
-							$url = $properties['url'][0];
+				if (isset($properties['name'][0]) && !empty($properties['name'][0]))
+					$title = $properties['name'][0];
 
-							if ( isset($properties['updated']) && !empty($properties['updated']) )
-								$date = $properties['updated'][0];
-							else
-								$date = $properties['published'][0];
+				elseif(isset($properties['author'][0]['properties']['name'][0]) && !empty($properties['author'][0]['properties']['name'][0]) )
+					$title = $properties['author'][0]['properties']['name'][0];
 
-							if ( isset($properties['content'][0]['html']) && !empty($properties['content'][0]['html']) )
-								$content = $properties['content'][0]['html'];
-							elseif ( isset($properties['summary'][0]['html']) && !empty($properties['summary'][0]['html']))
-								$content = $properties['summary'][0]['html'] . '<h2><a href="'.$url.'">Read the full article &raquo;&raquo;</a></h2>';
-							else
-								$content = '<h1><a href="'.$url.'">'.$title.'</a></h1>';
+				if (isset($properties['uid'][0])  && !empty($properties['uid'][0]))
+					$title .= ' (' . $properties['uid'][0] .  ')';
 
-							$time = strtotime( $date );
+				$url = $properties['url'][0];
 
-							$item = array (
-								'url' => $url,
-								'content' => $content,
-								'title' => $title,
-							);
+				if ( isset($properties['updated']) && !empty($properties['updated']) )
+					$date = $properties['updated'][0];
+				else
+					$date = $properties['published'][0];
 
-							$items[ $time ] = $item;
-						}
-					}
-				}
+				$time = strtotime( $date );
+
+				if ( isset($properties['content'][0]['html']) && !empty($properties['content'][0]['html']) )
+					$content = $properties['content'][0]['html'];
+				elseif ( isset($properties['summary'][0]['html']) && !empty($properties['summary'][0]['html']))
+					$content = $properties['summary'][0]['html'] . '<h2><a href="'.$url.'">Read the full article &raquo;&raquo;</a></h2>';
+				else
+					$content = '<h1><a href="'.$url.'">'.$title.'</a></h1>';
+
+				if ( isset($properties['photo'][0]) && !empty($properties['photo'][0] ) && !stristr($content, $properties['photo'][0]) )
+					$content .= '<p><img src="'.$properties['photo'][0].'" /></p>';
+
+				if ( isset($properties['video'][0]) && !empty($properties['video'][0] ) && !stristr($content, $properties['video'][0]) )
+					$content .= '<p><video><source src="'.$properties['video'][0].'" /></video></p>';
+
+				$item = array (
+					'url' => $url,
+					'content' => $content,
+					'title' => $title,
+				);
+
+				$items[ $time ] = $item;
 			}
 		}
 
@@ -487,6 +518,8 @@ class blogroll2email {
 			return false;
 
 		$last_updated_ = 0;
+
+		static::debug("    looping items");
 		foreach ( $items as $time => $item ) {
 			if ( $time > $last_updated ) {
 				if ($this->send (
