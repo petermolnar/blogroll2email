@@ -11,21 +11,7 @@ License: GPLv3
 Required minimum PHP version: 5.3
 */
 
-/*  Copyright 2015 Peter Molnar ( hello@petermolnar.eu )
-
-	This program is free software; you can redistribute it and/or modify
-	it under the terms of the GNU General Public License, version 3, as
-	published by the Free Software Foundation.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU General Public License for more details.
-
-	You should have received a copy of the GNU General Public License
-	along with this program; if not, write to the Free Software
-	Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
-*/
+//  Copyright 2015 Peter Molnar ( hello@petermolnar.eu )
 
 if ( !class_exists('Mf2\Parser') ) {
 	require (__DIR__ . '/vendor/autoload.php');
@@ -308,13 +294,13 @@ class blogroll2email {
 			'Date: ' . date( 'r' ),
 		);
 
-		static::debug('sending error to ' . $to );
+		//static::debug('sending error to ' . $to );
 
 		// for debung & specific reasons, there is a dry run mode
-		if ( !$dry )
-			$return = wp_mail( $to, $title, $body, $headers );
+		//if ( !$dry )
+		//	$return = wp_mail( $to, $title, $body, $headers );
 
-		return $return;
+		//return $return;
 	}
 
 	/**
@@ -565,23 +551,54 @@ class blogroll2email {
 	 *
 	 * @param string $message
 	 * @param int $level
+	 *
+	 * @output log to syslog | wp_die on high level
+	 * @return false on not taking action, true on log sent
 	 */
-	static function debug( $message, $level = LOG_NOTICE ) {
+	public static function debug( $message, $level = LOG_NOTICE ) {
+		if ( empty( $message ) )
+			return false;
+
 		if ( @is_array( $message ) || @is_object ( $message ) )
 			$message = json_encode($message);
 
+		$levels = array (
+			LOG_EMERG => 0, // system is unusable
+			LOG_ALERT => 1, // Alert 	action must be taken immediately
+			LOG_CRIT => 2, // Critical 	critical conditions
+			LOG_ERR => 3, // Error 	error conditions
+			LOG_WARNING => 4, // Warning 	warning conditions
+			LOG_NOTICE => 5, // Notice 	normal but significant condition
+			LOG_INFO => 6, // Informational 	informational messages
+			LOG_DEBUG => 7, // Debug 	debug-level messages
+		);
 
-		switch ( $level ) {
-			case LOG_ERR :
-				wp_die( '<h1>Error:</h1>' . '<p>' . $message . '</p>' );
-				exit;
-			default:
-				if ( !defined( 'WP_DEBUG' ) || WP_DEBUG != true )
-					return;
-				break;
+		// number for number based comparison
+		// should work with the defines only, this is just a make-it-sure step
+		$level_ = $levels [ $level ];
+
+		// in case WordPress debug log has a minimum level
+		if ( defined ( 'WP_DEBUG_LEVEL' ) ) {
+			$wp_level = $levels [ WP_DEBUG_LEVEL ];
+			if ( $level_ < $wp_level ) {
+				return false;
+			}
 		}
 
-		error_log(  __CLASS__ . ": " . $message );
+		// ERR, CRIT, ALERT and EMERG
+		if ( 3 >= $level_ ) {
+			wp_die( '<h1>Error:</h1>' . '<p>' . $message . '</p>' );
+			exit;
+		}
+
+		$trace = debug_backtrace();
+		$caller = $trace[1];
+		$parent = $caller['function'];
+
+		if (isset($caller['class']))
+			$parent = $caller['class'] . '::' . $parent;
+
+		return error_log( "{$parent}: {$message}" );
 	}
 
 
