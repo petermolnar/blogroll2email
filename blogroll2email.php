@@ -4,7 +4,7 @@
 Plugin Name: blogroll2email
 Plugin URI: https://github.com/petermolnar/blogroll2email
 Description: Pulls RSS, Atom and microformats entries from blogroll links and sends them as email
-Version: 0.2.3
+Version: 0.3.1
 Author: Peter Molnar <hello@petermolnar.eu>
 Author URI: http://petermolnar.eu/
 License: GPLv3
@@ -80,7 +80,7 @@ class blogroll2email {
 	 * activation hook function
 	 */
 	public function plugin_activate() {
-		static::debug('activating');
+		static::debug('activating', 4);
 
 	}
 
@@ -88,7 +88,7 @@ class blogroll2email {
 	 * deactivation hook function; clears schedules
 	 */
 	public function plugin_deactivate () {
-		static::debug('deactivating');
+		static::debug('deactivating', 4);
 		wp_unschedule_event( time(), static::schedule );
 		wp_clear_scheduled_hook( static::schedule );
 	}
@@ -99,7 +99,7 @@ class blogroll2email {
 	 *
 	 */
 	public function worker () {
-		static::debug('worker started');
+		static::debug('worker started', 6);
 		$args = array(
 			'orderby' => 'owner',
 			'order' => 'ASC',
@@ -165,14 +165,14 @@ class blogroll2email {
 				$this->do_rss( $bookmark, $owner );
 			}
 			else {
-				static::debug('Switcing into HTML mode');
+				static::debug('Switcing into HTML mode', 6);
 				$url = htmlspecialchars_decode($bookmark->link_url);
 
-				static::debug("  fetching {$url}");
+				static::debug("  fetching {$url}", 6);
 				$q = wp_remote_get($url);
 
 				if (is_wp_error($q)) {
-					static::debug('  something went wrong: ' . $q->get_error_message());
+					static::debug('  something went wrong: ' . $q->get_error_message(), 4);
 					continue;
 				}
 
@@ -188,15 +188,15 @@ class blogroll2email {
 				$ctype = isset($q['headers']['content-type']) ? $q['headers']['content-type'] : 'text/html';
 
 				if ($ctype == "application/json") {
-					static::debug("  content is json");
+					static::debug("  content is json", 6);
 					$content = json_decode($q['body'], true);
 				}
 				else {
-					static::debug("  content is html");
+					static::debug("  content is html", 6);
 					$content = Mf2\parse($q['body'], $url);
 				}
 
-				static::debug("  sending it to mf parser");
+				static::debug("  sending it to mf parser", 6);
 				$this->parse_mf ( $bookmark, $owner, $content );
 			}
 
@@ -206,7 +206,7 @@ class blogroll2email {
 			$flatroot = WP_CONTENT_DIR . DIRECTORY_SEPARATOR . 'flat';
 			if ( !is_dir($flatroot)) {
 				if (!mkdir( $flatroot )) {
-					static::debug_log('Failed to create ' . $flatroot . ', exiting YAML creation');
+					static::debug_log('Failed to create ' . $flatroot . ', exiting YAML creation', 4);
 				}
 			}
 			foreach ( $export_yaml as $owner => $bookmarks ) {
@@ -258,7 +258,7 @@ class blogroll2email {
 			'Date: ' . date( 'r', $time ),
 		);
 
-		static::debug('sending ' . $title . ' to ' . $to );
+		static::debug('sending ' . $title . ' to ' . $to, 5 );
 
 		// for debung & specific reasons, there is a dry run mode
 		if ( !$dry )
@@ -294,7 +294,7 @@ class blogroll2email {
 			'Date: ' . date( 'r' ),
 		);
 
-		//static::debug('sending error to ' . $to );
+		static::debug('sending error to ' . $to, 5 );
 
 		// for debung & specific reasons, there is a dry run mode
 		//if ( !$dry )
@@ -325,7 +325,7 @@ class blogroll2email {
 		$url = htmlspecialchars_decode($bookmark->link_rss);
 		$last_updated = strtotime( $bookmark->link_updated );
 
-		error_log('Fetching: ' . $url );
+		static::debug('Fetching: ' . $url, 6 );
 		$feed = new SimplePie();
 		$feed->set_feed_url( $url );
 		$feed->set_cache_duration ( static::revisit_time - 10 );
@@ -345,7 +345,7 @@ class blogroll2email {
 		if ( $feed->error() ) {
 			$err = new WP_Error( 'simplepie-error', $feed->error() );
 
-			//static::debug('Error: ' . $err->get_error_message());
+			static::debug('Error: ' . $err->get_error_message(), 4);
 			 $this->failed (
 				$owner->user_email, // to
 				$url, // target
@@ -440,7 +440,7 @@ class blogroll2email {
 
 		$mfitems = $items = array ();
 
-		static::debug("    looping topitems");
+		static::debug("    looping topitems", 6);
 		foreach ($mf['items'] as $topitem ) {
 
 			if ( in_array( 'h-feed', $topitem['type']) && !empty($topitem['children'])) {
@@ -451,7 +451,7 @@ class blogroll2email {
 			}
 		}
 
-		static::debug("    looping mfitems");
+		static::debug("    looping mfitems", 6);
 		foreach ($mfitems as $entry ) {
 			// double-check h-entries
 			if ( in_array( 'h-entry', $entry['type']) ) {
@@ -505,7 +505,7 @@ class blogroll2email {
 
 		$last_updated_ = 0;
 
-		static::debug("    looping items");
+		static::debug("    looping items", 6);
 		foreach ( $items as $time => $item ) {
 			if ( $time > $last_updated ) {
 				if ($this->send (
@@ -555,7 +555,8 @@ class blogroll2email {
 	 * @output log to syslog | wp_die on high level
 	 * @return false on not taking action, true on log sent
 	 */
-	public static function debug( $message, $level = LOG_NOTICE ) {
+	protected static function debug( $message, $level = LOG_NOTICE ) {
+
 		if ( empty( $message ) )
 			return false;
 
@@ -580,7 +581,7 @@ class blogroll2email {
 		// in case WordPress debug log has a minimum level
 		if ( defined ( 'WP_DEBUG_LEVEL' ) ) {
 			$wp_level = $levels [ WP_DEBUG_LEVEL ];
-			if ( $level_ < $wp_level ) {
+			if ( $level_ > $wp_level ) {
 				return false;
 			}
 		}
