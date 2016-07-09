@@ -4,14 +4,17 @@
 Plugin Name: blogroll2email
 Plugin URI: https://github.com/petermolnar/blogroll2email
 Description: Pulls RSS, Atom and microformats entries from blogroll links and sends them as email
-Version: 0.3.1
+Version: 0.3.2
 Author: Peter Molnar <hello@petermolnar.eu>
 Author URI: http://petermolnar.eu/
 License: GPLv3
-Required minimum PHP version: 5.3
 */
 
 //  Copyright 2015 Peter Molnar ( hello@petermolnar.eu )
+
+/*
+javascript:void(linkmanpopup=window.open('$url/wp-admin/link-add.php?action=popup&linkurl='+escape(location.href)+'&name='+escape(document.title),'LinkManager','scrollbars=yes,width=750,height=550,left=15,top=15,status=yes,resizable=yes'));linkmanpopup.focus();window.focus();linkmanpopup.focus();
+*/
 
 if ( !class_exists('Mf2\Parser') ) {
 	require (__DIR__ . '/vendor/autoload.php');
@@ -44,6 +47,9 @@ class blogroll2email {
 		add_filter( 'pre_option_link_manager_enabled', '__return_true' );
 		// add our own action for the scheduler to call it
 		add_action( static::schedule, array( &$this, 'worker' ) );
+
+
+		add_action( 'wp_mail_failed', array( &$this, 'wp_mail_failed' ) );
 
 		if (!is_dir($this->cachedir))
 			mkdir ($this->cachedir);
@@ -132,10 +138,10 @@ class blogroll2email {
 				)
 			*/
 
-			if ( $currowner != $bookmark->link_owner) {
-				$currowner = $bookmark->link_owner;
-				$owner = get_userdata($currowner);
-				$owner = $owner->data;
+			//if ( $currowner != $bookmark->link_owner) {
+			$currowner = $bookmark->link_owner;
+			$owner = get_userdata($currowner);
+			$owner = $owner->data;
 				/* print_r ( $owner );
 				stdClass Object
 				(
@@ -151,7 +157,7 @@ class blogroll2email {
 					[display_name] => Peter Molnar
 				)
 				*/
-			}
+			//}
 
 			$export_yaml[ $owner->user_nicename ][] = array (
 				'name' => $bookmark->link_name,
@@ -237,15 +243,13 @@ class blogroll2email {
 	 *
 	 *
 	 */
-	protected function send ( $to, $link, $title, $fromname, $sourceurl, $content, $time, $dry = false ) {
+	protected function send ( $to, $link, $title, $from, $sourceurl, $content, $time ) {
+		$return = false;
 		// enable HTML mail
 		add_filter( 'wp_mail_content_type', array( $this, 'set_html_content_type') );
 
 		// build a more readable body
 		$body = '<html><head></head><h1><a href="'. $link .'">'. $title .'</a></h1><body>'. $content . '<p>URL: <a href="'.$link.'">'.$link.'</a></p></body></html>';
-
-		// this is to set the sender mail from our own domain
-		$sitedomain = parse_url( get_bloginfo('url'), PHP_URL_HOST);
 
 		// additional header, for potential sieve backwards compatibility
 		// with http://www.aaronsw.com/weblog/001148
@@ -254,16 +258,12 @@ class blogroll2email {
 			'X-RSS-URL: ' . $link,
 			'X-RSS-Feed: ' . $sourceurl,
 			'User-Agent: blogroll2email',
-			'From: "' . $fromname .'" <'. static::schedule . '@'. $sitedomain .'>',
+			'From: ' . $from,
 			'Date: ' . date( 'r', $time ),
 		);
 
 		static::debug('sending ' . $title . ' to ' . $to, 5 );
-
-		// for debung & specific reasons, there is a dry run mode
-		if ( !$dry )
-			$return = wp_mail( $to, $title, $body, $headers );
-
+		$return = wp_mail( $to, $title, $body, $headers );
 
 		// disable HTML mail
 		remove_filter( 'wp_mail_content_type', array( $this, 'set_html_content_type') );
@@ -302,6 +302,20 @@ class blogroll2email {
 
 		//return $return;
 	}
+
+	/**
+	 *
+	 * @param string $to
+	 * @param string $link
+	 * @param string $message
+	 *
+	 *
+	 */
+	public function wp_mail_failed ( $err ) {
+		static::debug( $err->get_error_message() );
+		return $err;
+	}
+
 
 	/**
 	 *
@@ -377,12 +391,22 @@ class blogroll2email {
 				$date = $item->get_date( 'U' );
 
 				if ( $date > $last_updated ) {
-					$from = $feed_title;
+					$fromname = $feed_title;
 					$author = $item->get_author();
 					if ($author)
-						$from = $from . ': ' . $author->get_name();
+						$fromname = $fromname . ': ' . $author->get_name();
 					elseif ( $feed_author )
-						$from = $from . ': ' . $feed_author->get_name();
+						$fromname = $fromname . ': ' . $feed_author->get_name();
+
+
+					// this is to set the sender mail from our own domain
+					$frommail = get_user_meta ( $owner->ID, 'blogroll2email_email', true );
+					if ( ! $frommail ) {
+						$sitedomain = parse_url( get_bloginfo('url'), PHP_URL_HOST);
+						$frommail = static::schedule . '@'. $sitedomain;
+					}
+
+					$from = $fromname . '<' . $frommail . '>';
 
 					$content = $item->get_content();
 
@@ -505,6 +529,15 @@ class blogroll2email {
 
 		$last_updated_ = 0;
 
+		// this is to set the sender mail from our own domain
+		$frommail = get_user_meta ( $owner->ID, 'blogroll2email_email', true );
+		if ( ! $frommail ) {
+			$sitedomain = parse_url( get_bloginfo('url'), PHP_URL_HOST);
+			$frommail = static::schedule . '@'. $sitedomain;
+		}
+
+		$from = $bookmark->link_name . '<' . $frommail . '>';
+
 		static::debug("    looping items", 6);
 		foreach ( $items as $time => $item ) {
 			if ( $time > $last_updated ) {
@@ -512,7 +545,7 @@ class blogroll2email {
 					$owner->user_email,
 					$item['url'],
 					$item['title'],
-					$bookmark->link_name,
+					$from,
 					$item['url'],
 					$item['content'],
 					$time
