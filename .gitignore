@@ -1,1 +1,4 @@
 composer.lock
+bookmarks.tsv
+from.tsv
+cache/*
