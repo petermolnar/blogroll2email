@@ -1,17 +1,16 @@
 {
-    "name": "petermolnar/article2email",
-    "description": "rss2email PHP implementation with MF2 support",
+    "name": "petermolnar/blogroll2email",
+    "description": "blogroll2email WordPress plugin",
     "require": {
-        "phpmailer/phpmailer": "^5.2",
-        "simplepie/simplepie": "^1.4",
-        "mf2/mf2": "^0.3.0"
-    }
+        "php": ">=5.3.0",
+        "mf2/mf2": "0.2.*"
+    },
     "license": "GPLv3",
     "authors": [
         {
             "name": "Peter Molnar",
-            "email": "hello@petermolnar.net",
-            "homepage": "https://petermolnar.net"
+            "email": "hello@petermolnar.eu",
+            "homepage": "https://petermolnar.eu"
         }
     ]
 }
