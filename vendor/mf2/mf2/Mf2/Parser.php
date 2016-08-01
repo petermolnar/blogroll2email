@@ -78,9 +78,6 @@ function fetch($url, $convertClassic = true, &$curlInfo=null) {
 		return null;
 	}
 
-	# ensure the final URL is used to resolve relative URLs
-	$url = $info['url'];
-
 	return parse($html, $url, $convertClassic);
 }
 
@@ -234,19 +231,6 @@ function convertTimeFormat($time) {
 	}
 }
 
-function applySrcsetUrlTransformation($srcset, $transformation) {
-	return implode(', ', array_filter(array_map(function ($srcsetPart) use ($transformation) {
-		$parts = explode(" \t\n\r\0\x0B", trim($srcsetPart), 2);
-		$parts[0] = rtrim($parts[0]);
-
-		if (empty($parts[0])) { return false; }
-
-		$parts[0] = call_user_func($transformation, $parts[0]);
-
-		return $parts[0] . (empty($parts[1]) ? '' : ' ' . $parts[1]);
-	}, explode(',', trim($srcset)))));
-}
-
 /**
  * Microformats2 Parser
  *
@@ -352,20 +336,12 @@ class Parser {
 				$child->setAttribute('href', $this->resolveUrl($child->getAttribute('href')));
 			if ($child->hasAttribute('src'))
 				$child->setAttribute('src', $this->resolveUrl($child->getAttribute('src')));
-			if ($child->hasAttribute('srcset'))
-				$child->setAttribute('srcset', applySrcsetUrlTransformation($child->getAttribute('href'), [$this, 'resolveUrl']));
 			if ($child->hasAttribute('data'))
 				$child->setAttribute('data', $this->resolveUrl($child->getAttribute('data')));
 		}
 	}
 
 	public function textContent(DOMElement $el) {
-		$excludeTags = array('noframe', 'noscript', 'script', 'style', 'frames', 'frameset');
-		
-		if (isset($el->tagName) and in_array(strtolower($el->tagName), $excludeTags)) {
-			return '';
-		}
-		
 		$this->resolveChildUrls($el);
 
 		$clonedEl = $el->cloneNode(true);
@@ -374,93 +350,16 @@ class Parser {
 			$newNode = $this->doc->createTextNode($imgEl->getAttribute($imgEl->hasAttribute('alt') ? 'alt' : 'src'));
 			$imgEl->parentNode->replaceChild($newNode, $imgEl);
 		}
-		
-		foreach ($excludeTags as $tagName) {
-			foreach ($this->xpath->query(".//{$tagName}", $clonedEl) as $elToRemove) {
-				$elToRemove->parentNode->removeChild($elToRemove);
-			}
-		}
 
-		return $this->innerText($clonedEl);
-	}
-
-	/**
-	 * This method attempts to return a better 'innerText' representation than DOMNode::textContent
-	 *
-	 * @param DOMElement|DOMText $el
-	 * @param bool $implied when parsing for implied name for h-*, rules may be slightly different
-	 * @see: https://github.com/glennjones/microformat-shiv/blob/dev/lib/text.js
-	 */
-	public function innerText($el, $implied=false) {
-		$out = '';
-
-		$blockLevelTags = array('h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'hr', 'pre', 'table',
-			'address', 'article', 'aside', 'blockquote', 'caption', 'col', 'colgroup', 'dd', 'div', 
-			'dt', 'dir', 'fieldset', 'figcaption', 'figure', 'footer', 'form',  'header', 'hgroup', 'hr', 
-			'li', 'map', 'menu', 'nav', 'optgroup', 'option', 'section', 'tbody', 'testarea', 
-			'tfoot', 'th', 'thead', 'tr', 'td', 'ul', 'ol', 'dl', 'details');
-
-		$excludeTags = array('noframe', 'noscript', 'script', 'style', 'frames', 'frameset');
-		
-		// PHP DOMDocument doesn’t correctly handle whitespace around elements it doesn’t recognise.
-		$unsupportedTags = array('data');
-		
-		if (isset($el->tagName)) {
-			if (in_array(strtolower($el->tagName), $excludeTags)) {
-				return $out;
-			} else if ($el->tagName == 'img') {
-				if ($el->getAttribute('alt') !== '') {
-					return $el->getAttribute('alt');
-				} else if (!$implied && $el->getAttribute('src') !== '') {
-					return $this->resolveUrl($el->getAttribute('src'));
-				}
-			} else if ($el->tagName == 'area' and $el->getAttribute('alt') !== '') {
-				return $el->getAttribute('alt');
-			} else if ($el->tagName == 'abbr' and $el->getAttribute('title') !== '') {
-				return $el->getAttribute('title');
-			}
-		}
-
-		// if node is a text node get its text
-		if (isset($el->nodeType) && $el->nodeType === 3) {
-			$out .= $el->textContent;
-		}
-
-		// get the text of the child nodes
-		if ($el->childNodes && $el->childNodes->length > 0) {
-			for ($j = 0; $j < $el->childNodes->length; $j++) {
-				$text = $this->innerText($el->childNodes->item($j), $implied);
-				if (!is_null($text)) {
-					$out .= $text;
-				}
-			}
-		}
-
-		if (isset($el->tagName)) {
-			// if its a block level tag add an additional space at the end
-			if (in_array(strtolower($el->tagName), $blockLevelTags)) {
-				$out .= ' ';
-			} elseif ($implied and in_array(strtolower($el->tagName), $unsupportedTags)) {
-				$out .= ' ';
-			} else if (strtolower($el->tagName) == 'br') {
-				// else if its a br, replace with newline 
-				$out .= "\n";
-			}
-		} 
-
-		return ($out === '') ? NULL : $out;
+		return $clonedEl->textContent;
 	}
 
 	// TODO: figure out if this has problems with sms: and geo: URLs
 	public function resolveUrl($url) {
 		// If the URL is seriously malformed it’s probably beyond the scope of this
 		// parser to try to do anything with it.
-		if (parse_url($url) === false) {
+		if (parse_url($url) === false)
 			return $url;
-		}
-
-		// per issue #40 valid URLs could have a space on either side
-		$url = trim($url);
 
 		$scheme = parse_url($url, PHP_URL_SCHEME);
 
@@ -511,7 +410,7 @@ class Parser {
 	}
 
 	/**
-	 * Given an element with class="p-*", get its value
+	 * Given an element with class="p-*", get it’s value
 	 *
 	 * @param DOMElement $p The element to parse
 	 * @return string The plaintext value of $p, dependant on type
@@ -520,12 +419,9 @@ class Parser {
 	public function parseP(\DOMElement $p) {
 		$classTitle = $this->parseValueClassTitle($p, ' ');
 
-		if ($classTitle !== null) {
+		if ($classTitle !== null)
 			return $classTitle;
-		}
 
-		$this->resolveChildUrls($p);
-		
 		if ($p->tagName == 'img' and $p->getAttribute('alt') !== '') {
 			$pValue = $p->getAttribute('alt');
 		} elseif ($p->tagName == 'area' and $p->getAttribute('alt') !== '') {
@@ -535,7 +431,7 @@ class Parser {
 		} elseif (in_array($p->tagName, array('data', 'input')) and $p->getAttribute('value') !== '') {
 			$pValue = $p->getAttribute('value');
 		} else {
-			$pValue = unicodeTrim($this->innerText($p));
+			$pValue = unicodeTrim($this->textContent($p));
 		}
 
 		return $pValue;
@@ -678,7 +574,7 @@ class Parser {
 				if (!empty($value))
 					$dtValue = $value;
 				else
-					$dtValue = $this->textContent($dt);
+					$dtValue = $dt->nodeValue;
 			} elseif ($dt->tagName == 'abbr') {
 				// Use @title, otherwise innertext
 				// Is it an entire dt?
@@ -686,7 +582,7 @@ class Parser {
 				if (!empty($title))
 					$dtValue = $title;
 				else
-					$dtValue = $this->textContent($dt);
+					$dtValue = $dt->nodeValue;
 			} elseif ($dt->tagName == 'del' or $dt->tagName == 'ins' or $dt->tagName == 'time') {
 				// Use @datetime if available, otherwise innertext
 				// Is it an entire dt?
@@ -694,9 +590,9 @@ class Parser {
 				if (!empty($dtAttr))
 					$dtValue = $dtAttr;
 				else
-					$dtValue = $this->textContent($dt);
+					$dtValue = $dt->nodeValue;
 			} else {
-				$dtValue = $this->textContent($dt);
+				$dtValue = $dt->nodeValue;
 			}
 
 			if (preg_match('/(\d{4}-\d{2}-\d{2})/', $dtValue, $matches)) {
@@ -741,14 +637,8 @@ class Parser {
 
 		return array(
 			'html' => $html,
-			'value' => unicodeTrim($this->innerText($e))
+			'value' => unicodeTrim($this->textContent($e))
 		);
-	}
-
-	private function removeTags(\DOMElement &$e, $tagName) {
-		while(($r = $e->getElementsByTagName($tagName)) && $r->length) {
-			$r->item(0)->parentNode->removeChild($r->item(0));
-		}
 	}
 
 	/**
@@ -798,7 +688,7 @@ class Parser {
 						$prefixSpecificResult['html'] = $eParsedResult['html'];
 						$prefixSpecificResult['value'] = $eParsedResult['value'];
 					} elseif (in_array('u-', $prefixes)) {
-						$prefixSpecificResult['value'] = (empty($result['properties']['url'])) ? $this->parseU($subMF) : reset($result['properties']['url']);
+						$prefixSpecificResult['value'] = $this->parseU($subMF);
 					}
 					$return[$property][] = $prefixSpecificResult;
 				}
@@ -916,6 +806,7 @@ class Parser {
 					}
 				}
 
+
 				// Look for double nested img @alt
 				foreach ($this->xpath->query('./*[count(preceding-sibling::*)+count(following-sibling::*)=0]/img[count(preceding-sibling::*)+count(following-sibling::*)=0]', $e) as $em) {
 					$emNames = mfNamesFromElement($em, 'h-');
@@ -932,7 +823,7 @@ class Parser {
 					}
 				}
 
-				throw new Exception($this->innerText($e, true));
+				throw new Exception($e->nodeValue);
 			} catch (Exception $exc) {
 				$return['name'][] = unicodeTrim($exc->getMessage());
 			}
@@ -1272,7 +1163,7 @@ class Parser {
 			'dtend' => 'dt-end',
 			'duration' => 'dt-duration',
 			'description' => 'p-description',
-			'summary' => 'p-name',
+			'summary' => 'p-summary',
 			'description' => 'p-description',
 			'url' => 'u-url',
 			'category' => 'p-category',
@@ -1429,7 +1320,7 @@ function resolveUrl($baseURI, $referenceURI) {
 # 5.2.3 Merge Paths
 function mergePaths($base, $reference) {
 	# If the base URI has a defined authority component and an empty
-	# path,
+	#    path,
 	if($base['authority'] && $base['path'] == null) {
 		# then return a string consisting of "/" concatenated with the
 		# reference's path; otherwise,
@@ -1437,13 +1328,13 @@ function mergePaths($base, $reference) {
 	} else {
 		if(($pos=strrpos($base['path'], '/')) !== false) {
 			# return a string consisting of the reference's path component
-			# appended to all but the last segment of the base URI's path (i.e.,
-			# excluding any characters after the right-most "/" in the base URI
-			# path,
+			#    appended to all but the last segment of the base URI's path (i.e.,
+			#    excluding any characters after the right-most "/" in the base URI
+			#    path,
 			$merged = substr($base['path'], 0, $pos + 1) . $reference['path'];
 		} else {
-			# or excluding the entire base URI path if it does not contain
-			# any "/" characters).
+			#    or excluding the entire base URI path if it does not contain
+			#    any "/" characters).
 			$merged = $base['path'];
 		}
 	}

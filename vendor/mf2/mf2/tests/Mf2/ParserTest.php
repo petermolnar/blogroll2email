@@ -286,7 +286,7 @@ EOT;
 		$parser = new Parser($input);
 		$output = $parser->parse();
 
-		$this->assertEquals('Person Bee', $output['items'][0]['properties']['name'][0]);
+		$this->assertEquals('', $output['items'][0]['properties']['name'][0]);
 		$this->assertEquals('rect', $output['items'][0]['properties']['category'][0]['shape']);
 		$this->assertEquals('100,100,120,120', $output['items'][0]['properties']['category'][0]['coords']);
 		$this->assertEquals('Person Bee', $output['items'][0]['properties']['category'][0]['value']);
@@ -313,103 +313,5 @@ EOT;
 		$this->assertEquals('Bob Smith', $output['items'][0]['properties']['category'][0]['properties']['name'][0]);
 		$this->assertArrayHasKey('url', $output['items'][0]['properties']['category'][0]['properties']);
 		$this->assertEquals('http://b.example.com/', $output['items'][0]['properties']['category'][0]['properties']['url'][0]);
-	}
-	
-	public function testApplyTransformationToSrcset() {
-		$transformation = function ($url) {
-			return 'https://example.com/' . ltrim($url, '/');
-		};
-		
-		// Example from https://developers.whatwg.org/edits.html#attr-img-srcset
-		$srcset = 'banner-HD.jpeg 2x, banner-phone.jpeg 100w, banner-phone-HD.jpeg 100w 2x';
-		$result = Mf2\applySrcsetUrlTransformation($srcset, $transformation);
-		$this->assertEquals('https://example.com/banner-HD.jpeg 2x, https://example.com/banner-phone.jpeg 100w, https://example.com/banner-phone-HD.jpeg 100w 2x', $result);
-	}
-
-
-	/**
-	 * @see https://github.com/indieweb/php-mf2/issues/84
-	 */
-	public function testRelativeURLResolvedWithFinalURL() {
-		$mf = Mf2\fetch('http://aaron.pk/4Zn5');
-
-		$this->assertEquals('https://aaronparecki.com/2014/12/23/5/photo.jpeg', $mf['items'][0]['properties']['photo'][0]);
-	}
-	
-	public function testScriptTagContentsRemovedFromTextValue() {
-		$input = <<<EOT
-<div class="h-entry">
-	<div class="p-content">
-		<b>Hello World</b>
-		<script>alert("hi");</script>
-	</div>
-</div>
-EOT;
-
-		$parser = new Parser($input);
-		$output = $parser->parse();
-
-		$this->assertContains('h-entry', $output['items'][0]['type']);
-		$this->assertContains('Hello World', $output['items'][0]['properties']['content'][0]);
-		$this->assertNotContains('alert', $output['items'][0]['properties']['content'][0]);
-	}
-	
-	public function testScriptElementContentsRemovedFromAllPlaintextValues() {
-		$input = <<<EOT
-<div class="h-entry">
-	<span class="dt-published">contained<script>not contained</script><style>not contained</style></span>
-	<span class="u-url">contained<script>not contained</script><style>not contained</style></span>
-</div>
-EOT;
-
-		$parser = new Parser($input);
-		$output = $parser->parse();
-		
-		$this->assertNotContains('not contained', $output['items'][0]['properties']['published'][0]);
-		$this->assertNotContains('not contained', $output['items'][0]['properties']['url'][0]);
-	}
-
-	public function testScriptTagContentsNotRemovedFromHTMLValue() {
-		$input = <<<EOT
-<div class="h-entry">
-	<div class="e-content">
-		<b>Hello World</b>
-		<script>alert("hi");</script>
-		<style>body{ visibility: hidden; }</style>
-		<p>
-			<script>alert("hi");</script>
-			<style>body{ visibility: hidden; }</style>
-		</p>
-	</div>
-</div>
-EOT;
-
-		$parser = new Parser($input);
-		$output = $parser->parse();
-
-		$this->assertContains('h-entry', $output['items'][0]['type']);
-		$this->assertContains('Hello World', $output['items'][0]['properties']['content'][0]['value']);
-		$this->assertContains('<b>Hello World</b>', $output['items'][0]['properties']['content'][0]['html']);
-		# The script and style tags should be removed from plaintext results but left in HTML results.
-		$this->assertContains('alert', $output['items'][0]['properties']['content'][0]['html']);
-		$this->assertNotContains('alert', $output['items'][0]['properties']['content'][0]['value']);
-		$this->assertContains('visibility', $output['items'][0]['properties']['content'][0]['html']);
-		$this->assertNotContains('visibility', $output['items'][0]['properties']['content'][0]['value']);
-	}
-	
-	public function testWhitespaceBetweenElements() {
-		$input = <<<EOT
-<div class="h-entry">
-	<data class="p-rsvp" value="yes">I'm attending</data>
-	<a class="u-in-reply-to" href="https://snarfed.org/2014-06-16_homebrew-website-club-at-quip">Homebrew Website Club at Quip</a>
-	<div class="p-content">Thanks for hosting!</div>
-</div>
-EOT;
-
-		$parser = new Parser($input);
-		$output = $parser->parse();
-
-		$this->assertContains('h-entry', $output['items'][0]['type']);
-		$this->assertNotContains('attendingHomebrew', $output['items'][0]['properties']['name'][0]);
 	}
 }
